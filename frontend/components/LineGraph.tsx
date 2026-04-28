@@ -28,18 +28,24 @@ export default function LineGraph({ data }: LineGraphProps) {
   }));
 
   const formatYAxis = (value: number) => {
-    if (value >= 1000) {
-      return `$${(value / 1000).toFixed(0)}k`;
+    if (value >= 100000) {
+      return `₹${(value / 100000).toFixed(1)}L`;
     }
-    return `$${value}`;
+    if (value >= 1000) {
+      return `₹${(value / 1000).toFixed(0)}k`;
+    }
+    return `₹${value}`;
   };
+
+  const minChartWidth = Math.max(600, data.x_axis.length * 80);
 
   return (
     <div style={cardStyle}>
       <h2 style={titleStyle}>{data.title}</h2>
-      <div style={chartContainerStyle}>
-        <ResponsiveContainer width="100%" height={350}>
-          <ComposedChart data={data.data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+      <div style={scrollContainerStyle}>
+        <div style={{ ...chartContainerStyle, minWidth: `${minChartWidth}px` }}>
+          <ResponsiveContainer width="100%" height={350}>
+            <ComposedChart data={data.data} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis
               dataKey="month"
@@ -54,7 +60,7 @@ export default function LineGraph({ data }: LineGraphProps) {
             <Tooltip
               contentStyle={tooltipStyle}
               labelStyle={{ color: "#1e293b", fontWeight: 600 }}
-              formatter={(value: number) => [`$${value.toLocaleString()}`, ""]}
+              formatter={(value: number) => [`₹${value.toLocaleString()}`, ""]}
             />
             <Legend
               wrapperStyle={{ paddingTop: "20px" }}
@@ -95,7 +101,8 @@ export default function LineGraph({ data }: LineGraphProps) {
               />
             ))}
           </ComposedChart>
-        </ResponsiveContainer>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
@@ -114,6 +121,11 @@ const titleStyle: React.CSSProperties = {
   fontWeight: 600,
   color: "#1e293b",
   marginBottom: "1rem",
+};
+
+const scrollContainerStyle: React.CSSProperties = {
+  overflowX: "auto",
+  scrollbarWidth: "thin",
 };
 
 const chartContainerStyle: React.CSSProperties = {

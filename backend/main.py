@@ -1,10 +1,24 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes import graphs
+from routes import bank_accounts
+from routes import projections
+from database import init_db
 
 
-app = FastAPI(title="FinCore API", description="Backend API for financial graphs")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+
+app = FastAPI(
+    title="FinCore API",
+    description="Backend API for financial graphs",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,6 +29,8 @@ app.add_middleware(
 )
 
 app.include_router(graphs.router)
+app.include_router(bank_accounts.router)
+app.include_router(projections.router)
 
 
 @app.get("/")
