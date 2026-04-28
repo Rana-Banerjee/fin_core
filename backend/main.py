@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes import graphs
 from routes import bank_accounts
 from routes import projections
+from routes import home_loans
 from database import init_db
 
 
@@ -31,6 +32,7 @@ app.add_middleware(
 app.include_router(graphs.router)
 app.include_router(bank_accounts.router)
 app.include_router(projections.router)
+app.include_router(home_loans.router)
 
 
 @app.get("/")

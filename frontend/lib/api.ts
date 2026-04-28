@@ -165,3 +165,97 @@ export async function clearProjections(): Promise<void> {
     throw new Error(`Failed to clear projections: ${response.statusText}`);
   }
 }
+
+export interface HomeLoan {
+  id: number;
+  name: string;
+  account_number: string;
+  interest_rate: number;
+  tenure_months: number;
+  emi_start_date: string;
+  od_account_id: number | null;
+  current_principal_outstanding: number;
+  current_pre_emi_principal: number | null;
+  current_pre_emi_interest: number | null;
+  current_emi_principal: number | null;
+  current_emi_interest: number | null;
+  created_at: string;
+}
+
+export interface HomeLoanFormData {
+  name: string;
+  account_number: string;
+  interest_rate: number;
+  tenure_months: number;
+  emi_start_date: string;
+  od_account_id: number | null;
+  current_principal_outstanding: number;
+  current_pre_emi_principal: number | null;
+  current_pre_emi_interest: number | null;
+  current_emi_principal: number | null;
+  current_emi_interest: number | null;
+}
+
+export async function createHomeLoan(data: HomeLoanFormData): Promise<HomeLoan> {
+  const params = new URLSearchParams({
+    name: data.name,
+    account_number: data.account_number,
+    interest_rate: data.interest_rate.toString(),
+    tenure_months: data.tenure_months.toString(),
+    emi_start_date: data.emi_start_date,
+    current_principal_outstanding: data.current_principal_outstanding.toString(),
+  });
+  if (data.od_account_id) params.append("od_account_id", data.od_account_id.toString());
+  if (data.current_pre_emi_principal !== null) params.append("current_pre_emi_principal", data.current_pre_emi_principal.toString());
+  if (data.current_pre_emi_interest !== null) params.append("current_pre_emi_interest", data.current_pre_emi_interest.toString());
+  if (data.current_emi_principal !== null) params.append("current_emi_principal", data.current_emi_principal.toString());
+  if (data.current_emi_interest !== null) params.append("current_emi_interest", data.current_emi_interest.toString());
+
+  const response = await fetch(`${API_BASE_URL}/api/home-loans?${params}`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to create home loan: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function fetchHomeLoans(): Promise<HomeLoan[]> {
+  const response = await fetch(`${API_BASE_URL}/api/home-loans`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch home loans: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function updateHomeLoan(id: number, data: Partial<HomeLoanFormData>): Promise<HomeLoan> {
+  const params = new URLSearchParams();
+  if (data.name) params.append("name", data.name);
+  if (data.account_number) params.append("account_number", data.account_number);
+  if (data.interest_rate !== undefined) params.append("interest_rate", data.interest_rate.toString());
+  if (data.tenure_months !== undefined) params.append("tenure_months", data.tenure_months.toString());
+  if (data.emi_start_date) params.append("emi_start_date", data.emi_start_date);
+  if (data.od_account_id !== undefined) params.append("od_account_id", data.od_account_id?.toString() || "");
+  if (data.current_principal_outstanding !== undefined) params.append("current_principal_outstanding", data.current_principal_outstanding.toString());
+  if (data.current_pre_emi_principal !== undefined && data.current_pre_emi_principal !== null) params.append("current_pre_emi_principal", data.current_pre_emi_principal.toString());
+  if (data.current_pre_emi_interest !== undefined && data.current_pre_emi_interest !== null) params.append("current_pre_emi_interest", data.current_pre_emi_interest.toString());
+  if (data.current_emi_principal !== undefined && data.current_emi_principal !== null) params.append("current_emi_principal", data.current_emi_principal.toString());
+  if (data.current_emi_interest !== undefined && data.current_emi_interest !== null) params.append("current_emi_interest", data.current_emi_interest.toString());
+
+  const response = await fetch(`${API_BASE_URL}/api/home-loans/${id}?${params}`, {
+    method: "PUT",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update home loan: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function deleteHomeLoan(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/home-loans/${id}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to delete home loan: ${response.statusText}`);
+  }
+}

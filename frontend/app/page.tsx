@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import BankAccountForm from "@/components/BankAccountForm";
-import { fetchBankAccounts, deleteBankAccount, BankAccount } from "@/lib/api";
+import HomeLoanForm from "@/components/HomeLoanForm";
+import { fetchBankAccounts, deleteBankAccount, BankAccount, fetchHomeLoans, deleteHomeLoan, HomeLoan } from "@/lib/api";
 
 interface SummaryData {
   totalAssets: number;
@@ -24,6 +25,12 @@ export default function Dashboard() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<BankAccount | null>(null);
+  const [homeLoans, setHomeLoans] = useState<HomeLoan[]>([]);
+  const [isLoanFormOpen, setIsLoanFormOpen] = useState(false);
+  const [editingLoan, setEditingLoan] = useState<HomeLoan | null>(null);
+  const [deleteLoanConfirm, setDeleteLoanConfirm] = useState<HomeLoan | null>(null);
+  const [bankAccountsCollapsed, setBankAccountsCollapsed] = useState(false);
+  const [homeLoansCollapsed, setHomeLoansCollapsed] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -33,8 +40,10 @@ export default function Dashboard() {
     try {
       setLoading(true);
       const accountsData = await fetchBankAccounts();
+      const loansData = await fetchHomeLoans();
       setBankAccounts(accountsData);
-      calculateSummary(accountsData);
+      setHomeLoans(loansData);
+      calculateSummary(accountsData, loansData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -42,7 +51,7 @@ export default function Dashboard() {
     }
   };
 
-  const calculateSummary = ( accounts: BankAccount[] ) => {
+  const calculateSummary = ( accounts: BankAccount[], loans: HomeLoan[] ) => {
     let totalAssets = 0;
     let totalLiabilities = 0;
     let cashInHand = 0;
@@ -56,6 +65,10 @@ export default function Dashboard() {
           cashInHand += account.current_balance;
         }
       }
+    });
+
+    loans.forEach((loan) => {
+      totalLiabilities += loan.current_principal_outstanding;
     });
 
     setSummary({
@@ -79,6 +92,17 @@ export default function Dashboard() {
       loadData();
     } catch (err) {
       console.error("Failed to delete bank account:", err);
+    }
+  };
+
+  const handleLoanDelete = async () => {
+    if (!deleteLoanConfirm) return;
+    try {
+      await deleteHomeLoan(deleteLoanConfirm.id);
+      setDeleteLoanConfirm(null);
+      loadData();
+    } catch (err) {
+      console.error("Failed to delete home loan:", err);
     }
   };
 
@@ -126,9 +150,6 @@ export default function Dashboard() {
     <div className="dashboard">
       <div style={headerStyle}>
         <h1 style={pageTitleStyle}>FinCore Dashboard</h1>
-        <button onClick={() => setIsFormOpen(true)} style={addButtonStyle}>
-          + Add Bank Account
-        </button>
       </div>
 
       <div style={summaryGridStyle}>
@@ -152,14 +173,23 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div style={sectionHeaderStyle}>
-        <h2 style={sectionTitleStyle}>Bank Accounts</h2>
-        <span style={accountsCountStyle}>
-          {bankAccounts.length} account{bankAccounts.length !== 1 ? "s" : ""}
-        </span>
-      </div>
+      <div style={bankAccountsSectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <div style={sectionHeaderLeftStyle}>
+            <button onClick={() => setBankAccountsCollapsed(!bankAccountsCollapsed)} style={collapseButtonStyle}>
+              {bankAccountsCollapsed ? "▶" : "▼"}
+            </button>
+            <h2 style={sectionTitleStyle}>Bank Accounts</h2>
+            <span style={accountsCountStyle}>
+              {bankAccounts.length} account{bankAccounts.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <button onClick={() => setIsFormOpen(true)} style={addButtonStyle}>
+            + Add Bank Account
+          </button>
+        </div>
 
-      {bankAccounts.length > 0 ? (
+        {!bankAccountsCollapsed && bankAccounts.length > 0 ? (
         <div style={accountsListStyle}>
           {bankAccounts.map((account) => (
             <div key={account.id} style={accountCardStyle}>
@@ -194,10 +224,13 @@ export default function Dashboard() {
           ))}
         </div>
       ) : (
-        <div style={emptyStateStyle}>
-          No bank accounts yet. Add your first account to get started.
-        </div>
+        !bankAccountsCollapsed && (
+          <div style={emptyStateStyle}>
+            No bank accounts yet. Add your first account to get started.
+          </div>
+        )
       )}
+      </div>
 
       <BankAccountForm
         isOpen={isFormOpen || !!editingAccount}
@@ -208,6 +241,102 @@ export default function Dashboard() {
         onSuccess={handleFormSuccess}
         editData={editingAccount}
       />
+
+      <div style={homeLoansSectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <div style={sectionHeaderLeftStyle}>
+            <button onClick={() => setHomeLoansCollapsed(!homeLoansCollapsed)} style={collapseButtonStyle}>
+              {homeLoansCollapsed ? "▶" : "▼"}
+            </button>
+            <h2 style={sectionTitleStyle}>Home Loans</h2>
+            <span style={accountsCountStyle}>
+              {homeLoans.length} loan{homeLoans.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <button onClick={() => setIsLoanFormOpen(true)} style={addButtonStyle}>
+            + Add Home Loan
+          </button>
+        </div>
+
+        {!homeLoansCollapsed && homeLoans.length > 0 ? (
+        <div style={accountsListStyle}>
+          {homeLoans.map((loan) => (
+            <div key={loan.id} style={accountCardStyle}>
+              <div style={accountInfoStyle}>
+                <div style={accountNameStyle}>{loan.name}</div>
+                <div style={accountDetailsStyle}>
+                  <span style={accountTypeStyle}>Home Loan</span>
+                  <span style={accountNumberStyle}>••{loan.account_number.slice(-4)}</span>
+                  <span style={loanInterestBadgeStyle}>{loan.interest_rate}%</span>
+                  <span style={loanTenureStyle}>{loan.tenure_months} months</span>
+                  <span style={accountBalanceNegativeStyle}>-₹{loan.current_principal_outstanding.toLocaleString("en-IN")}</span>
+                </div>
+                {(loan.current_emi_principal || loan.current_pre_emi_principal) && (
+                  <div style={loanEmiDetailsStyle}>
+                    {loan.emi_start_date > new Date().toISOString().split("T")[0] ? (
+                      <span>Pre-EMI: ₹{(loan.current_pre_emi_principal || 0) + (loan.current_pre_emi_interest || 0)}/mo</span>
+                    ) : (
+                      <span>EMI: ₹{(loan.current_emi_principal || 0) + (loan.current_emi_interest || 0)}/mo</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div style={accountActionsStyle}>
+                <button
+                  onClick={() => setEditingLoan(loan)}
+                  style={editButtonStyle}
+                  title="Edit"
+                >
+                  ✏️
+                </button>
+                <button
+                  onClick={() => setDeleteLoanConfirm(loan)}
+                  style={deleteButtonStyle}
+                  title="Delete"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        !homeLoansCollapsed && (
+          <div style={emptyStateStyle}>
+            No home loans yet. Add your first loan to track it.
+          </div>
+        )
+      )}
+      </div>
+
+      <HomeLoanForm
+        isOpen={isLoanFormOpen || !!editingLoan}
+        onClose={() => {
+          setIsLoanFormOpen(false);
+          setEditingLoan(null);
+        }}
+        onSuccess={handleFormSuccess}
+        editData={editingLoan}
+      />
+
+      {deleteLoanConfirm && (
+        <div style={modalOverlayStyle}>
+          <div style={deleteModalStyle}>
+            <h3 style={deleteModalTitleStyle}>Delete Home Loan?</h3>
+            <p style={deleteModalTextStyle}>
+              Are you sure you want to delete <strong>{deleteLoanConfirm.name}</strong>? This action cannot be undone.
+            </p>
+            <div style={deleteModalButtonsStyle}>
+              <button onClick={() => setDeleteLoanConfirm(null)} style={cancelButtonStyle}>
+                Cancel
+              </button>
+              <button onClick={handleLoanDelete} style={confirmDeleteButtonStyle}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteConfirm && (
         <div style={modalOverlayStyle}>
@@ -309,6 +438,29 @@ const sectionHeaderStyle: React.CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   marginBottom: "1rem",
+};
+
+const bankAccountsSectionStyle: React.CSSProperties = {
+  marginBottom: "1.5rem",
+};
+
+const homeLoansSectionStyle: React.CSSProperties = {
+  marginBottom: "1.5rem",
+};
+
+const sectionHeaderLeftStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+};
+
+const collapseButtonStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  fontSize: "0.75rem",
+  cursor: "pointer",
+  padding: "0.25rem",
+  color: "#6b7280",
 };
 
 const sectionTitleStyle: React.CSSProperties = {
@@ -482,4 +634,37 @@ const cancelButtonStyle: React.CSSProperties = {
   fontWeight: 500,
   color: "#374151",
   cursor: "pointer",
+};
+
+const addLoanButtonStyle: React.CSSProperties = {
+  marginLeft: "auto",
+  padding: "0.625rem 1rem",
+  background: "#7c3aed",
+  border: "none",
+  borderRadius: "6px",
+  fontSize: "0.875rem",
+  fontWeight: 500,
+  color: "#ffffff",
+  cursor: "pointer",
+};
+
+const loanInterestBadgeStyle: React.CSSProperties = {
+  background: "#fef3c7",
+  color: "#d97706",
+  padding: "0.125rem 0.5rem",
+  borderRadius: "4px",
+  fontSize: "0.75rem",
+  fontWeight: 500,
+};
+
+const loanTenureStyle: React.CSSProperties = {
+  color: "#6b7280",
+  fontSize: "0.8125rem",
+};
+
+const loanEmiDetailsStyle: React.CSSProperties = {
+  marginTop: "0.25rem",
+  fontSize: "0.75rem",
+  color: "#059669",
+  fontWeight: 500,
 };
