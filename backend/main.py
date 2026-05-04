@@ -2,10 +2,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import models
 from routes import graphs
 from routes import bank_accounts
 from routes import projections
 from routes import home_loans
+from routes import installments
+from routes import investments
+from routes import payment_sources
+from routes import cash_flows
+from routes import expense_sources
+from routes import cash_flow_projections
 from database import init_db
 
 
@@ -33,6 +40,12 @@ app.include_router(graphs.router)
 app.include_router(bank_accounts.router)
 app.include_router(projections.router)
 app.include_router(home_loans.router)
+app.include_router(installments.router)
+app.include_router(investments.router)
+app.include_router(payment_sources.router)
+app.include_router(cash_flows.router)
+app.include_router(expense_sources.router)
+app.include_router(cash_flow_projections.router)
 
 
 @app.get("/")

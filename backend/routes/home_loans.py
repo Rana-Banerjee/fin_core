@@ -1,10 +1,18 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from datetime import date as date_type
 
 from database import get_db
-from models.home_loan import HomeLoan
+from models.home_loan import HomeLoan, ODImpactType
+from models.bank_account import BankAccount
+from services.emi_calculator import (
+    calculate_pre_emi,
+    calculate_emi,
+    calculate_impacted_tenure,
+    get_past_bank_installments_sum,
+)
 
 router = APIRouter(prefix="/api/home-loans", tags=["home-loans"])
 
@@ -18,13 +26,14 @@ async def create_home_loan(
     emi_start_date: str,
     current_principal_outstanding: float,
     od_account_id: int | None = None,
-    current_pre_emi_principal: float | None = None,
-    current_pre_emi_interest: float | None = None,
-    current_emi_principal: float | None = None,
-    current_emi_interest: float | None = None,
+    od_impact_type: str = "none",
     db: AsyncSession = Depends(get_db),
 ):
     emi_start = date_type.fromisoformat(emi_start_date)
+    od_impact = ODImpactType.none
+    if od_impact_type in ["emi", "tenure"]:
+        od_impact = ODImpactType[od_impact_type]
+
     home_loan = HomeLoan(
         name=name,
         account_number=account_number,
@@ -33,31 +42,107 @@ async def create_home_loan(
         emi_start_date=emi_start,
         od_account_id=od_account_id,
         current_principal_outstanding=current_principal_outstanding,
-        current_pre_emi_principal=current_pre_emi_principal,
-        current_pre_emi_interest=current_pre_emi_interest,
-        current_emi_principal=current_emi_principal,
-        current_emi_interest=current_emi_interest,
+        od_impact_type=od_impact,
     )
     db.add(home_loan)
     await db.commit()
     await db.refresh(home_loan)
-    return home_loan.to_dict()
+
+    result_stmt = (
+        select(HomeLoan)
+        .options(selectinload(HomeLoan.installments))
+        .where(HomeLoan.id == home_loan.id)
+    )
+    result = await db.execute(result_stmt)
+    home_loan = result.scalar_one()
+
+    result = home_loan.to_dict(include_installments=True)
+
+    od_balance = None
+    if home_loan.od_account_id:
+        od_result = await db.execute(
+            select(BankAccount).where(BankAccount.id == home_loan.od_account_id)
+        )
+        od_account = od_result.scalar_one_or_none()
+        if od_account:
+            od_balance = od_account.current_balance
+
+    installments_data = [i.to_dict() for i in home_loan.installments]
+    result["effective_pre_emi"] = calculate_pre_emi(
+        result, installments_data, od_balance
+    )
+    result["effective_emi"] = calculate_emi(result, od_balance)
+    result["impacted_tenure_months"] = calculate_impacted_tenure(result, od_balance)
+
+    return result
 
 
 @router.get("")
 async def get_home_loans(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(HomeLoan))
+    result = await db.execute(
+        select(HomeLoan).options(selectinload(HomeLoan.installments))
+    )
     loans = result.scalars().all()
-    return [loan.to_dict() for loan in loans]
+
+    response = []
+    for loan in loans:
+        loan_dict = loan.to_dict(include_installments=True)
+
+        od_balance = None
+        if loan.od_account_id:
+            od_result = await db.execute(
+                select(BankAccount).where(BankAccount.id == loan.od_account_id)
+            )
+            od_account = od_result.scalar_one_or_none()
+            if od_account:
+                od_balance = od_account.current_balance
+
+        installments_data = [i.to_dict() for i in loan.installments]
+        loan_dict["effective_pre_emi"] = calculate_pre_emi(
+            loan_dict, installments_data, od_balance
+        )
+        loan_dict["effective_emi"] = calculate_emi(loan_dict, od_balance)
+        loan_dict["impacted_tenure_months"] = calculate_impacted_tenure(
+            loan_dict, od_balance
+        )
+
+        response.append(loan_dict)
+
+    return response
 
 
 @router.get("/{loan_id}")
 async def get_home_loan(loan_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(HomeLoan).where(HomeLoan.id == loan_id))
+    result = await db.execute(
+        select(HomeLoan)
+        .options(selectinload(HomeLoan.installments))
+        .where(HomeLoan.id == loan_id)
+    )
     loan = result.scalar_one_or_none()
     if not loan:
         raise HTTPException(status_code=404, detail="Home loan not found")
-    return loan.to_dict()
+
+    loan_dict = loan.to_dict(include_installments=True)
+
+    od_balance = None
+    if loan.od_account_id:
+        od_result = await db.execute(
+            select(BankAccount).where(BankAccount.id == loan.od_account_id)
+        )
+        od_account = od_result.scalar_one_or_none()
+        if od_account:
+            od_balance = od_account.current_balance
+
+    installments_data = [i.to_dict() for i in loan.installments]
+    loan_dict["effective_pre_emi"] = calculate_pre_emi(
+        loan_dict, installments_data, od_balance
+    )
+    loan_dict["effective_emi"] = calculate_emi(loan_dict, od_balance)
+    loan_dict["impacted_tenure_months"] = calculate_impacted_tenure(
+        loan_dict, od_balance
+    )
+
+    return loan_dict
 
 
 @router.put("/{loan_id}")
@@ -69,14 +154,15 @@ async def update_home_loan(
     tenure_months: int | None = None,
     emi_start_date: str | None = None,
     od_account_id: int | None = None,
+    od_impact_type: str | None = None,
     current_principal_outstanding: float | None = None,
-    current_pre_emi_principal: float | None = None,
-    current_pre_emi_interest: float | None = None,
-    current_emi_principal: float | None = None,
-    current_emi_interest: float | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(HomeLoan).where(HomeLoan.id == loan_id))
+    result = await db.execute(
+        select(HomeLoan)
+        .options(selectinload(HomeLoan.installments))
+        .where(HomeLoan.id == loan_id)
+    )
     loan = result.scalar_one_or_none()
     if not loan:
         raise HTTPException(status_code=404, detail="Home loan not found")
@@ -93,20 +179,38 @@ async def update_home_loan(
         loan.emi_start_date = date_type.fromisoformat(emi_start_date)
     if od_account_id is not None:
         loan.od_account_id = od_account_id if od_account_id > 0 else None
+    if od_impact_type is not None:
+        if od_impact_type in ["emi", "tenure"]:
+            loan.od_impact_type = ODImpactType[od_impact_type]
+        else:
+            loan.od_impact_type = ODImpactType.none
     if current_principal_outstanding is not None:
         loan.current_principal_outstanding = current_principal_outstanding
-    if current_pre_emi_principal is not None:
-        loan.current_pre_emi_principal = current_pre_emi_principal
-    if current_pre_emi_interest is not None:
-        loan.current_pre_emi_interest = current_pre_emi_interest
-    if current_emi_principal is not None:
-        loan.current_emi_principal = current_emi_principal
-    if current_emi_interest is not None:
-        loan.current_emi_interest = current_emi_interest
 
     await db.commit()
     await db.refresh(loan)
-    return loan.to_dict()
+
+    loan_dict = loan.to_dict(include_installments=True)
+
+    od_balance = None
+    if loan.od_account_id:
+        od_result = await db.execute(
+            select(BankAccount).where(BankAccount.id == loan.od_account_id)
+        )
+        od_account = od_result.scalar_one_or_none()
+        if od_account:
+            od_balance = od_account.current_balance
+
+    installments_data = [i.to_dict() for i in loan.installments]
+    loan_dict["effective_pre_emi"] = calculate_pre_emi(
+        loan_dict, installments_data, od_balance
+    )
+    loan_dict["effective_emi"] = calculate_emi(loan_dict, od_balance)
+    loan_dict["impacted_tenure_months"] = calculate_impacted_tenure(
+        loan_dict, od_balance
+    )
+
+    return loan_dict
 
 
 @router.delete("/{loan_id}")

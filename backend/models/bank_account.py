@@ -15,6 +15,7 @@ class BankAccount(Base):
     interest_credit_frequency: Mapped[str] = mapped_column(
         String(20), nullable=False, default="annually"
     )
+    priority_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     def to_dict(self):
         return {

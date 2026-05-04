@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import BankAccountForm from "@/components/BankAccountForm";
 import HomeLoanForm from "@/components/HomeLoanForm";
-import { fetchBankAccounts, deleteBankAccount, BankAccount, fetchHomeLoans, deleteHomeLoan, HomeLoan } from "@/lib/api";
+import InvestmentList from "@/components/InvestmentList";
+import PaymentSourceList from "@/components/PaymentSourceList";
+import CashFlowForm from "@/components/CashFlowForm";
+import CashFlowList from "@/components/CashFlowList";
+import { fetchBankAccounts, deleteBankAccount, BankAccount, fetchHomeLoans, deleteHomeLoan, HomeLoan, fetchInvestments, fetchPaymentSources, Investment, PaymentSource, fetchCashFlows, deleteCashFlow, CashFlow, updateBankAccountBalances } from "@/lib/api";
 
 interface SummaryData {
   totalAssets: number;
@@ -31,6 +35,15 @@ export default function Dashboard() {
   const [deleteLoanConfirm, setDeleteLoanConfirm] = useState<HomeLoan | null>(null);
   const [bankAccountsCollapsed, setBankAccountsCollapsed] = useState(false);
   const [homeLoansCollapsed, setHomeLoansCollapsed] = useState(false);
+  const [investments, setInvestments] = useState<Investment[]>([]);
+  const [investmentsCollapsed, setInvestmentsCollapsed] = useState(false);
+  const [paymentSources, setPaymentSources] = useState<PaymentSource[]>([]);
+  const [paymentSourcesCollapsed, setPaymentSourcesCollapsed] = useState(false);
+  const [cashFlows, setCashFlows] = useState<CashFlow[]>([]);
+  const [cashFlowsCollapsed, setCashFlowsCollapsed] = useState(false);
+  const [isCashFlowFormOpen, setIsCashFlowFormOpen] = useState(false);
+  const [editingCashFlow, setEditingCashFlow] = useState<CashFlow | null>(null);
+  const [cashFlowSummary, setCashFlowSummary] = useState({ totalIncome: 0, totalExpenses: 0, netFlow: 0 });
 
   useEffect(() => {
     loadData();
@@ -39,11 +52,22 @@ export default function Dashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const accountsData = await fetchBankAccounts();
-      const loansData = await fetchHomeLoans();
+      
+      await updateBankAccountBalances();
+      
+      const [accountsData, loansData, investmentsData, sourcesData, cashFlowsData] = await Promise.all([
+        fetchBankAccounts(),
+        fetchHomeLoans(),
+        fetchInvestments(),
+        fetchPaymentSources(),
+        fetchCashFlows(),
+      ]);
       setBankAccounts(accountsData);
       setHomeLoans(loansData);
-      calculateSummary(accountsData, loansData);
+      setInvestments(investmentsData);
+      setPaymentSources(sourcesData);
+      setCashFlows(cashFlowsData);
+      calculateSummary(accountsData, loansData, investmentsData, cashFlowsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -51,14 +75,15 @@ export default function Dashboard() {
     }
   };
 
-  const calculateSummary = ( accounts: BankAccount[], loans: HomeLoan[] ) => {
+  const calculateSummary = ( accounts: BankAccount[], loans: HomeLoan[], invs: Investment[] = [], cfs: CashFlow[] = [] ) => {
     let totalAssets = 0;
     let totalLiabilities = 0;
     let cashInHand = 0;
 
     accounts.forEach((account) => {
       if (account.type === "home_loan_od") {
-        totalLiabilities += account.current_balance;
+        totalAssets += account.current_balance;
+        cashInHand += account.current_balance;
       } else {
         totalAssets += account.current_balance;
         if (account.type === "savings" || account.type === "current") {
@@ -67,8 +92,37 @@ export default function Dashboard() {
       }
     });
 
+    invs.forEach((inv) => {
+      totalAssets += inv.current_value;
+    });
+
     loans.forEach((loan) => {
       totalLiabilities += loan.current_principal_outstanding;
+    });
+
+    const today = new Date();
+
+    cfs.forEach((cf) => {
+      const startDate = cf.start_date ? new Date(cf.start_date) : null;
+      const isStarted = !startDate || startDate <= today;
+
+      if (cf.stream_type === "income" && cf.is_active && isStarted) {
+        totalAssets += cf.amount;
+      } else if (cf.stream_type === "expense" && cf.is_active && isStarted) {
+        totalLiabilities += cf.amount;
+      }
+    });
+
+    const activeCfs = cfs.filter((cf) => {
+      const startDate = cf.start_date ? new Date(cf.start_date) : null;
+      return cf.is_active && (!startDate || startDate <= today);
+    });
+    const totalIncome = activeCfs.filter((cf) => cf.stream_type === "income").reduce((sum, cf) => sum + cf.amount, 0);
+    const totalExpenses = activeCfs.filter((cf) => cf.stream_type === "expense").reduce((sum, cf) => sum + cf.amount, 0);
+    setCashFlowSummary({
+      totalIncome,
+      totalExpenses,
+      netFlow: totalIncome - totalExpenses,
     });
 
     setSummary({
@@ -171,6 +225,20 @@ export default function Dashboard() {
             {summary.netWorth < 0 && "-"}{formatCurrency(summary.netWorth)}
           </div>
         </div>
+        <div style={summaryCardStyle}>
+          <div style={summaryLabelStyle}>Monthly Income</div>
+          <div style={summaryValuePositiveStyle}>{formatCurrency(cashFlowSummary.totalIncome)}</div>
+        </div>
+        <div style={summaryCardStyle}>
+          <div style={summaryLabelStyle}>Monthly Expenses</div>
+          <div style={summaryValueNegativeStyle}>{formatCurrency(cashFlowSummary.totalExpenses)}</div>
+        </div>
+        <div style={summaryCardStyle}>
+          <div style={summaryLabelStyle}>Net Monthly Flow</div>
+          <div style={cashFlowSummary.netFlow >= 0 ? summaryValuePositiveStyle : summaryValueNegativeStyle}>
+            {cashFlowSummary.netFlow < 0 && "-"}{formatCurrency(cashFlowSummary.netFlow)}
+          </div>
+        </div>
       </div>
 
       <div style={bankAccountsSectionStyle}>
@@ -199,8 +267,8 @@ export default function Dashboard() {
                   <span style={accountTypeStyle}>{getAccountTypeLabel(account.type)}</span>
                   <span style={frequencyBadgeStyle}>{getFrequencyLabel(account.interest_credit_frequency)}</span>
                   <span style={accountNumberStyle}>••{account.account_number.slice(-4)}</span>
-                  <span style={account.type === "home_loan_od" ? accountBalanceNegativeStyle : accountBalancePositiveStyle}>
-                    {account.type === "home_loan_od" ? "-" : ""}₹{account.current_balance.toLocaleString("en-IN")}
+                  <span style={accountBalancePositiveStyle}>
+                    ₹{account.current_balance.toLocaleString("en-IN")}
                   </span>
                 </div>
               </div>
@@ -270,14 +338,37 @@ export default function Dashboard() {
                   <span style={loanInterestBadgeStyle}>{loan.interest_rate}%</span>
                   <span style={loanTenureStyle}>{loan.tenure_months} months</span>
                   <span style={accountBalanceNegativeStyle}>-₹{loan.current_principal_outstanding.toLocaleString("en-IN")}</span>
+                  {loan.od_account_id && loan.od_impact_type !== "none" && (
+                    <span style={odImpactBadgeStyle}>
+                      OD: {loan.od_impact_type === "emi" ? "Impacts EMI" : "Impacts Tenure"}
+                    </span>
+                  )}
                 </div>
-                {(loan.current_emi_principal || loan.current_pre_emi_principal) && (
+                {(loan.effective_pre_emi || loan.effective_emi) && (
                   <div style={loanEmiDetailsStyle}>
                     {loan.emi_start_date > new Date().toISOString().split("T")[0] ? (
-                      <span>Pre-EMI: ₹{(loan.current_pre_emi_principal || 0) + (loan.current_pre_emi_interest || 0)}/mo</span>
+                      loan.effective_pre_emi ? (
+                        <span>
+                          Pre-EMI: ₹{loan.effective_pre_emi.total.toLocaleString("en-IN")}/mo
+                          <span style={effectiveDetailStyle}> (Effective)</span>
+                        </span>
+                      ) : null
                     ) : (
-                      <span>EMI: ₹{(loan.current_emi_principal || 0) + (loan.current_emi_interest || 0)}/mo</span>
+                      loan.effective_emi ? (
+                        <span>
+                          EMI: ₹{loan.effective_emi.total.toLocaleString("en-IN")}/mo
+                          <span style={effectiveDetailStyle}> (Effective)</span>
+                        </span>
+                      ) : null
                     )}
+                  </div>
+                )}
+                {loan.od_impact_type === "tenure" && loan.impacted_tenure_months && loan.impacted_tenure_months !== loan.tenure_months && (
+                  <div style={loanEmiDetailsStyle}>
+                    <span>
+                      Tenure: {loan.impacted_tenure_months} months
+                      <span style={effectiveDetailStyle}> (Extended from {loan.tenure_months} months)</span>
+                    </span>
                   </div>
                 )}
               </div>
@@ -318,6 +409,77 @@ export default function Dashboard() {
         onSuccess={handleFormSuccess}
         editData={editingLoan}
       />
+
+      <div style={homeLoansSectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <div style={sectionHeaderLeftStyle}>
+            <button onClick={() => setCashFlowsCollapsed(!cashFlowsCollapsed)} style={collapseButtonStyle}>
+              {cashFlowsCollapsed ? "▶" : "▼"}
+            </button>
+            <h2 style={sectionTitleStyle}>Income & Expenses</h2>
+            <span style={accountsCountStyle}>
+              {cashFlows.length} stream{cashFlows.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <button onClick={() => setIsCashFlowFormOpen(true)} style={addButtonStyle}>
+              + Add Income/Expense
+            </button>
+        </div>
+
+        {!cashFlowsCollapsed && (
+          <>
+            <CashFlowList 
+              cashFlows={cashFlows} 
+              onRefresh={loadData} 
+              onEdit={(cf) => setEditingCashFlow(cf)} 
+            />
+          </>
+        )}
+      </div>
+
+      <CashFlowForm
+        isOpen={isCashFlowFormOpen || !!editingCashFlow}
+        onClose={() => {
+          setIsCashFlowFormOpen(false);
+          setEditingCashFlow(null);
+        }}
+        onSuccess={handleFormSuccess}
+        editData={editingCashFlow}
+      />
+
+      <div style={homeLoansSectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <div style={sectionHeaderLeftStyle}>
+            <button onClick={() => setInvestmentsCollapsed(!investmentsCollapsed)} style={collapseButtonStyle}>
+              {investmentsCollapsed ? "▶" : "▼"}
+            </button>
+            <h2 style={sectionTitleStyle}>Investments</h2>
+            <span style={accountsCountStyle}>
+              {investments.length} holding{investments.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+        </div>
+        {!investmentsCollapsed && (
+          <InvestmentList investments={investments} onRefresh={loadData} />
+        )}
+      </div>
+
+      <div style={homeLoansSectionStyle}>
+        <div style={sectionHeaderStyle}>
+          <div style={sectionHeaderLeftStyle}>
+            <button onClick={() => setPaymentSourcesCollapsed(!paymentSourcesCollapsed)} style={collapseButtonStyle}>
+              {paymentSourcesCollapsed ? "▶" : "▼"}
+            </button>
+            <h2 style={sectionTitleStyle}>Payment Priority</h2>
+            <span style={accountsCountStyle}>
+              {paymentSources.length} source{paymentSources.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+        </div>
+        {!paymentSourcesCollapsed && (
+          <PaymentSourceList onRefresh={loadData} />
+        )}
+      </div>
 
       {deleteLoanConfirm && (
         <div style={modalOverlayStyle}>
@@ -667,4 +829,18 @@ const loanEmiDetailsStyle: React.CSSProperties = {
   fontSize: "0.75rem",
   color: "#059669",
   fontWeight: 500,
+};
+
+const odImpactBadgeStyle: React.CSSProperties = {
+  padding: "0.125rem 0.5rem",
+  background: "#fef3c7",
+  color: "#92400e",
+  borderRadius: "9999px",
+  fontSize: "0.6875rem",
+  fontWeight: 500,
+};
+
+const effectiveDetailStyle: React.CSSProperties = {
+  color: "#6b7280",
+  fontWeight: 400,
 };

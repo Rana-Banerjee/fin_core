@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createHomeLoan, updateHomeLoan, HomeLoanFormData, HomeLoan, fetchBankAccounts, BankAccount } from "@/lib/api";
+import InstallmentForm from "./InstallmentForm";
 
 interface HomeLoanFormProps {
   isOpen: boolean;
@@ -18,15 +19,13 @@ export default function HomeLoanForm({ isOpen, onClose, onSuccess, editData }: H
     tenure_months: 0,
     emi_start_date: "",
     od_account_id: null,
+    od_impact_type: "none",
     current_principal_outstanding: 0,
-    current_pre_emi_principal: null,
-    current_pre_emi_interest: null,
-    current_emi_principal: null,
-    current_emi_interest: null,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [odAccounts, setOdAccounts] = useState<BankAccount[]>([]);
+  const [showInstallmentForm, setShowInstallmentForm] = useState(false);
 
   const isEditing = !!editData;
 
@@ -43,11 +42,8 @@ export default function HomeLoanForm({ isOpen, onClose, onSuccess, editData }: H
         tenure_months: editData.tenure_months,
         emi_start_date: editData.emi_start_date,
         od_account_id: editData.od_account_id,
+        od_impact_type: editData.od_impact_type,
         current_principal_outstanding: editData.current_principal_outstanding,
-        current_pre_emi_principal: editData.current_pre_emi_principal,
-        current_pre_emi_interest: editData.current_pre_emi_interest,
-        current_emi_principal: editData.current_emi_principal,
-        current_emi_interest: editData.current_emi_interest,
       });
     } else {
       setFormData({
@@ -57,11 +53,8 @@ export default function HomeLoanForm({ isOpen, onClose, onSuccess, editData }: H
         tenure_months: 0,
         emi_start_date: "",
         od_account_id: null,
+        od_impact_type: "none",
         current_principal_outstanding: 0,
-        current_pre_emi_principal: null,
-        current_pre_emi_interest: null,
-        current_emi_principal: null,
-        current_emi_interest: null,
       });
     }
   }, [editData, isOpen]);
@@ -99,11 +92,8 @@ export default function HomeLoanForm({ isOpen, onClose, onSuccess, editData }: H
           tenure_months: 0,
           emi_start_date: "",
           od_account_id: null,
+          od_impact_type: "none",
           current_principal_outstanding: 0,
-          current_pre_emi_principal: null,
-          current_pre_emi_interest: null,
-          current_emi_principal: null,
-          current_emi_interest: null,
         });
       }
     } catch (err) {
@@ -119,16 +109,17 @@ export default function HomeLoanForm({ isOpen, onClose, onSuccess, editData }: H
       setFormData((prev) => ({
         ...prev,
         od_account_id: value === "" ? null : parseInt(value),
+        od_impact_type: value === "" ? "none" : prev.od_impact_type,
+      }));
+    } else if (name === "od_impact_type") {
+      setFormData((prev) => ({
+        ...prev,
+        od_impact_type: value as "none" | "emi" | "tenure",
       }));
     } else if (name === "tenure_months" || name === "interest_rate" || name === "current_principal_outstanding") {
       setFormData((prev) => ({
         ...prev,
         [name]: parseFloat(value) || 0,
-      }));
-    } else if (name.startsWith("current_pre_emi") || name.startsWith("current_emi")) {
-      setFormData((prev) => ({
-        ...prev,
-        [name]: value === "" ? null : parseFloat(value),
       }));
     } else {
       setFormData((prev) => ({
@@ -144,45 +135,134 @@ export default function HomeLoanForm({ isOpen, onClose, onSuccess, editData }: H
 
   const isPreEmiApplicable = formData.emi_start_date && formData.emi_start_date > getToday();
   const isEmiApplicable = formData.emi_start_date && formData.emi_start_date <= getToday();
+  const hasOdLinked = formData.od_account_id !== null;
+
+  const getCalculatedDisplay = () => {
+    if (!editData) return null;
+    
+    const preEmi = editData.effective_pre_emi;
+    const emi = editData.effective_emi;
+    const impactedTenure = editData.impacted_tenure_months;
+
+    return { preEmi, emi, impactedTenure };
+  };
+
+  const calculated = editData ? getCalculatedDisplay() : null;
 
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <h2 style={titleStyle}>{isEditing ? "Edit Home Loan" : "Add Home Loan"}</h2>
-        <form onSubmit={handleSubmit}>
-          <div style={formGroupStyle}>
-            <label style={labelStyle}>Name</label>
-            <input
-              type="text"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              required
-              style={inputStyle}
-              placeholder="e.g., HDFC Home Loan"
-            />
-          </div>
-
-          <div style={formGroupStyle}>
-            <label style={labelStyle}>Account Number</label>
-            <input
-              type="text"
-              name="account_number"
-              value={formData.account_number}
-              onChange={handleChange}
-              required
-              style={inputStyle}
-              placeholder="e.g., HDFC123456"
-            />
-          </div>
-
-          <div style={formRowStyle}>
+    <>
+      <div style={overlayStyle}>
+        <div style={modalStyle}>
+          <h2 style={titleStyle}>{isEditing ? "Edit Home Loan" : "Add Home Loan"}</h2>
+          <form onSubmit={handleSubmit}>
             <div style={formGroupStyle}>
-              <label style={labelStyle}>Interest Rate (%)</label>
+              <label style={labelStyle}>Name</label>
+              <input
+                type="text"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                required
+                style={inputStyle}
+                placeholder="e.g., HDFC Home Loan"
+              />
+            </div>
+
+            <div style={formGroupStyle}>
+              <label style={labelStyle}>Account Number</label>
+              <input
+                type="text"
+                name="account_number"
+                value={formData.account_number}
+                onChange={handleChange}
+                required
+                style={inputStyle}
+                placeholder="e.g., HDFC123456"
+              />
+            </div>
+
+            <div style={formRowStyle}>
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Interest Rate (%)</label>
+                <input
+                  type="number"
+                  name="interest_rate"
+                  value={formData.interest_rate}
+                  onChange={handleChange}
+                  required
+                  step="0.01"
+                  min="0"
+                  style={inputStyle}
+                />
+              </div>
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Tenure (months)</label>
+                <input
+                  type="number"
+                  name="tenure_months"
+                  value={formData.tenure_months}
+                  onChange={handleChange}
+                  required
+                  min="1"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            <div style={formRowStyle}>
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>EMI Start Date</label>
+                <input
+                  type="date"
+                  name="emi_start_date"
+                  value={formData.emi_start_date}
+                  onChange={handleChange}
+                  required
+                  style={inputStyle}
+                />
+              </div>
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>OD Account (Optional)</label>
+                <select
+                  name="od_account_id"
+                  value={formData.od_account_id ?? ""}
+                  onChange={handleChange}
+                  style={inputStyle}
+                >
+                  <option value="">None</option>
+                  {odAccounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {hasOdLinked && (
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>OD Impact Type</label>
+                <select
+                  name="od_impact_type"
+                  value={formData.od_impact_type}
+                  onChange={handleChange}
+                  style={inputStyle}
+                >
+                  <option value="none">No Impact</option>
+                  <option value="emi">Impacts EMI/Pre-EMI</option>
+                  <option value="tenure">Impacts Tenure</option>
+                </select>
+              </div>
+            )}
+
+            <div style={formGroupStyle}>
+              <label style={labelStyle}>Current Principal Outstanding (₹)</label>
               <input
                 type="number"
-                name="interest_rate"
-                value={formData.interest_rate}
+                name="current_principal_outstanding"
+                value={formData.current_principal_outstanding}
                 onChange={handleChange}
                 required
                 step="0.01"
@@ -191,153 +271,95 @@ export default function HomeLoanForm({ isOpen, onClose, onSuccess, editData }: H
               />
             </div>
 
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Tenure (months)</label>
-              <input
-                type="number"
-                name="tenure_months"
-                value={formData.tenure_months}
-                onChange={handleChange}
-                required
-                min="1"
-                style={inputStyle}
-              />
+            {isEditing && editData && (
+              <div style={installmentSectionStyle}>
+                <button
+                  type="button"
+                  onClick={() => setShowInstallmentForm(true)}
+                  style={manageInstallmentsButtonStyle}
+                >
+                  Manage Installments
+                </button>
+              </div>
+            )}
+
+            {calculated && calculated.preEmi && (
+              <div style={calculatedBoxStyle}>
+                <div style={calculatedTitleStyle}>Calculated Values (Backend)</div>
+                {isPreEmiApplicable && calculated.preEmi && (
+                  <div style={calculatedItemStyle}>
+                    <span style={calculatedLabelStyle}>Pre-EMI (Effective):</span>
+                    <span style={calculatedValueStyle}>
+                      ₹{calculated.preEmi.total.toLocaleString()}/mo
+                      <span style={calculatedDetailStyle}>
+                        {" "}(Principal: ₹{calculated.preEmi.principal.toLocaleString()}, Interest: ₹{calculated.preEmi.interest.toLocaleString()})
+                      </span>
+                    </span>
+                    <div style={effectivePrincipalStyle}>
+                      Effective Principal: ₹{calculated.preEmi.effective_principal.toLocaleString()} 
+                      {calculated.preEmi.od_deduction > 0 && ` (Original - ₹${calculated.preEmi.od_deduction.toLocaleString()} OD)`}
+                    </div>
+                  </div>
+                )}
+                {isEmiApplicable && calculated.emi && (
+                  <div style={calculatedItemStyle}>
+                    <span style={calculatedLabelStyle}>EMI (Effective):</span>
+                    <span style={calculatedValueStyle}>
+                      ₹{calculated.emi.total.toLocaleString()}/mo
+                      <span style={calculatedDetailStyle}>
+                        {" "}(Principal: ₹{calculated.emi.principal.toLocaleString()}, Interest: ₹{calculated.emi.interest.toLocaleString()})
+                      </span>
+                    </span>
+                    <div style={effectivePrincipalStyle}>
+                      Effective Principal: ₹{calculated.emi.effective_principal.toLocaleString()}
+                      {calculated.emi.od_deduction > 0 && ` (Original - ₹{calculated.emi.od_deduction.toLocaleString()} OD)`}
+                    </div>
+                  </div>
+                )}
+                {formData.od_impact_type === "tenure" && calculated.impactedTenure && calculated.impactedTenure !== formData.tenure_months && (
+                  <div style={calculatedItemStyle}>
+                    <span style={calculatedLabelStyle}>Impacted Tenure:</span>
+                    <span style={calculatedValueStyle}>
+                      {calculated.impactedTenure} months
+                      <span style={calculatedDetailStyle}>
+                        {" "}(Extended from {formData.tenure_months} months)
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {formData.emi_start_date && (
+              <div style={infoBoxStyle}>
+                {isPreEmiApplicable && <span>Pre-EMI is applicable (EMI starts after today)</span>}
+                {isEmiApplicable && <span>EMI is applicable (EMI has started)</span>}
+              </div>
+            )}
+
+            {error && <div style={errorStyle}>{error}</div>}
+
+            <div style={buttonGroupStyle}>
+              <button type="button" onClick={onClose} style={cancelButtonStyle}>
+                Cancel
+              </button>
+              <button type="submit" disabled={loading} style={submitButtonStyle}>
+                {loading ? (isEditing ? "Updating..." : "Creating...") : (isEditing ? "Update" : "Create")}
+              </button>
             </div>
-          </div>
-
-          <div style={formRowStyle}>
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>EMI Start Date</label>
-              <input
-                type="date"
-                name="emi_start_date"
-                value={formData.emi_start_date}
-                onChange={handleChange}
-                required
-                style={inputStyle}
-              />
-            </div>
-
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>OD Account (Optional)</label>
-              <select
-                name="od_account_id"
-                value={formData.od_account_id ?? ""}
-                onChange={handleChange}
-                style={inputStyle}
-              >
-                <option value="">None</option>
-                {odAccounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={formGroupStyle}>
-            <label style={labelStyle}>Current Principal Outstanding (₹)</label>
-            <input
-              type="number"
-              name="current_principal_outstanding"
-              value={formData.current_principal_outstanding}
-              onChange={handleChange}
-              required
-              step="0.01"
-              min="0"
-              style={inputStyle}
-            />
-          </div>
-
-          <div style={sectionDividerStyle}>
-            <span style={sectionLabelStyle}>Pre-EMI Details (if EMI not started)</span>
-          </div>
-
-          <div style={formRowStyle}>
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Pre-EMI Principal (₹)</label>
-              <input
-                type="number"
-                name="current_pre_emi_principal"
-                value={formData.current_pre_emi_principal ?? ""}
-                onChange={handleChange}
-                step="0.01"
-                min="0"
-                style={inputStyle}
-                placeholder="Enter principal component"
-              />
-            </div>
-
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Pre-EMI Interest (₹)</label>
-              <input
-                type="number"
-                name="current_pre_emi_interest"
-                value={formData.current_pre_emi_interest ?? ""}
-                onChange={handleChange}
-                step="0.01"
-                min="0"
-                style={inputStyle}
-                placeholder="Enter interest component"
-              />
-            </div>
-          </div>
-
-          <div style={sectionDividerStyle}>
-            <span style={sectionLabelStyle}>EMI Details (if EMI started)</span>
-          </div>
-
-          <div style={formRowStyle}>
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>EMI Principal (₹)</label>
-              <input
-                type="number"
-                name="current_emi_principal"
-                value={formData.current_emi_principal ?? ""}
-                onChange={handleChange}
-                step="0.01"
-                min="0"
-                style={inputStyle}
-                placeholder="Enter principal component"
-              />
-            </div>
-
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>EMI Interest (₹)</label>
-              <input
-                type="number"
-                name="current_emi_interest"
-                value={formData.current_emi_interest ?? ""}
-                onChange={handleChange}
-                step="0.01"
-                min="0"
-                style={inputStyle}
-                placeholder="Enter interest component"
-              />
-            </div>
-          </div>
-
-          {formData.emi_start_date && (
-            <div style={infoBoxStyle}>
-              {isPreEmiApplicable && <span>Pre-EMI is applicable (EMI starts after today)</span>}
-              {isEmiApplicable && <span>EMI is applicable (EMI has started)</span>}
-            </div>
-          )}
-
-          {error && <div style={errorStyle}>{error}</div>}
-
-          <div style={buttonGroupStyle}>
-            <button type="button" onClick={onClose} style={cancelButtonStyle}>
-              Cancel
-            </button>
-            <button type="submit" disabled={loading} style={submitButtonStyle}>
-              {loading ? (isEditing ? "Updating..." : "Creating...") : (isEditing ? "Update" : "Create")}
-            </button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
-    </div>
+
+      {isEditing && editData && (
+        <InstallmentForm
+          isOpen={showInstallmentForm}
+          onClose={() => setShowInstallmentForm(false)}
+          onSuccess={onSuccess}
+          homeLoanId={editData.id}
+        />
+      )}
+    </>
   );
 }
 
@@ -398,17 +420,68 @@ const inputStyle: React.CSSProperties = {
   color: "#1f2937",
 };
 
-const sectionDividerStyle: React.CSSProperties = {
-  borderTop: "1px solid #e5e7eb",
+const installSectionStyle: React.CSSProperties = {
   marginTop: "1rem",
   marginBottom: "1rem",
-  paddingTop: "0.75rem",
 };
 
-const sectionLabelStyle: React.CSSProperties = {
+const installmentSectionStyle: React.CSSProperties = {
+  marginBottom: "1rem",
+};
+
+const manageInstallmentsButtonStyle: React.CSSProperties = {
+  padding: "0.625rem 1rem",
+  background: "#f0fdf4",
+  border: "1px solid #86efac",
+  borderRadius: "6px",
+  fontSize: "0.875rem",
+  fontWeight: 500,
+  color: "#166534",
+  cursor: "pointer",
+};
+
+const calculatedBoxStyle: React.CSSProperties = {
+  padding: "1rem",
+  background: "#f0fdf4",
+  border: "1px solid #86efac",
+  borderRadius: "6px",
+  marginBottom: "1rem",
+};
+
+const calculatedTitleStyle: React.CSSProperties = {
   fontSize: "0.875rem",
   fontWeight: 600,
+  color: "#166534",
+  marginBottom: "0.75rem",
+};
+
+const calculatedItemStyle: React.CSSProperties = {
+  marginBottom: "0.5rem",
+};
+
+const calculatedLabelStyle: React.CSSProperties = {
+  fontSize: "0.875rem",
+  fontWeight: 500,
+  color: "#374151",
+  marginRight: "0.5rem",
+};
+
+const calculatedValueStyle: React.CSSProperties = {
+  fontSize: "0.875rem",
+  fontWeight: 600,
+  color: "#166534",
+};
+
+const calculatedDetailStyle: React.CSSProperties = {
+  fontSize: "0.75rem",
+  fontWeight: 400,
   color: "#6b7280",
+};
+
+const effectivePrincipalStyle: React.CSSProperties = {
+  fontSize: "0.75rem",
+  color: "#6b7280",
+  marginTop: "0.25rem",
 };
 
 const infoBoxStyle: React.CSSProperties = {
