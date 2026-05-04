@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import BankAccountForm from "@/components/BankAccountForm";
 import HomeLoanForm from "@/components/HomeLoanForm";
 import InvestmentList from "@/components/InvestmentList";
-import PaymentSourceList from "@/components/PaymentSourceList";
 import CashFlowForm from "@/components/CashFlowForm";
 import CashFlowList from "@/components/CashFlowList";
-import { fetchBankAccounts, deleteBankAccount, BankAccount, fetchHomeLoans, deleteHomeLoan, HomeLoan, fetchInvestments, fetchPaymentSources, Investment, PaymentSource, fetchCashFlows, deleteCashFlow, CashFlow, updateBankAccountBalances } from "@/lib/api";
+import { fetchBankAccounts, deleteBankAccount, BankAccount, fetchHomeLoans, deleteHomeLoan, HomeLoan, fetchInvestments, Investment, fetchCashFlows, deleteCashFlow, CashFlow, updateBankAccountBalances } from "@/lib/api";
 
 interface SummaryData {
   totalAssets: number;
@@ -37,8 +36,6 @@ export default function Dashboard() {
   const [homeLoansCollapsed, setHomeLoansCollapsed] = useState(false);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [investmentsCollapsed, setInvestmentsCollapsed] = useState(false);
-  const [paymentSources, setPaymentSources] = useState<PaymentSource[]>([]);
-  const [paymentSourcesCollapsed, setPaymentSourcesCollapsed] = useState(false);
   const [cashFlows, setCashFlows] = useState<CashFlow[]>([]);
   const [cashFlowsCollapsed, setCashFlowsCollapsed] = useState(false);
   const [isCashFlowFormOpen, setIsCashFlowFormOpen] = useState(false);
@@ -55,17 +52,15 @@ export default function Dashboard() {
       
       await updateBankAccountBalances();
       
-      const [accountsData, loansData, investmentsData, sourcesData, cashFlowsData] = await Promise.all([
+      const [accountsData, loansData, investmentsData, cashFlowsData] = await Promise.all([
         fetchBankAccounts(),
         fetchHomeLoans(),
         fetchInvestments(),
-        fetchPaymentSources(),
         fetchCashFlows(),
       ]);
       setBankAccounts(accountsData);
       setHomeLoans(loansData);
       setInvestments(investmentsData);
-      setPaymentSources(sourcesData);
       setCashFlows(cashFlowsData);
       calculateSummary(accountsData, loansData, investmentsData, cashFlowsData);
     } catch (err) {
@@ -461,23 +456,6 @@ export default function Dashboard() {
         </div>
         {!investmentsCollapsed && (
           <InvestmentList investments={investments} onRefresh={loadData} />
-        )}
-      </div>
-
-      <div style={homeLoansSectionStyle}>
-        <div style={sectionHeaderStyle}>
-          <div style={sectionHeaderLeftStyle}>
-            <button onClick={() => setPaymentSourcesCollapsed(!paymentSourcesCollapsed)} style={collapseButtonStyle}>
-              {paymentSourcesCollapsed ? "▶" : "▼"}
-            </button>
-            <h2 style={sectionTitleStyle}>Payment Priority</h2>
-            <span style={accountsCountStyle}>
-              {paymentSources.length} source{paymentSources.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-        </div>
-        {!paymentSourcesCollapsed && (
-          <PaymentSourceList onRefresh={loadData} />
         )}
       </div>
 

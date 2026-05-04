@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from datetime import datetime, date
@@ -218,16 +218,20 @@ async def get_projection_status(db: AsyncSession = Depends(get_db)):
     """Get projection status - whether projections exist and for how many months."""
 
     result = await db.execute(
-        select(Projection.month_index).order_by(Projection.month_index.desc()).limit(1)
+        select(
+            func.min(Projection.month_index), func.max(Projection.month_index)
+        ).select_from(Projection)
     )
-    max_month = result.scalar()
+    row = result.one()
 
-    if max_month is not None:
+    if row[0] is not None:
+        min_month = row[0]
+        max_month = row[1]
         result = await db.execute(select(Projection.bank_account_id).distinct())
         accounts_count = len(result.scalars().all())
         return {
             "generated": True,
-            "months": max_month + 1,
+            "months": max_month - min_month + 1,
             "accounts_count": accounts_count,
         }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import LineGraph from "@/components/LineGraph";
-import { fetchGraph, fetchBankAccounts, GraphData, BankAccount, generateProjections, getProjectionStatus, ProjectionStatus } from "@/lib/api";
+import { fetchGraph, fetchBankAccounts, GraphData, BankAccount, generateProjections, getProjectionStatus, ProjectionStatus, clearProjections } from "@/lib/api";
 
 const GRAPH_IDS = ["assets_liabilities", "cashflow"];
 
@@ -18,8 +18,11 @@ export default function Projection() {
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
-    loadData();
-    loadProjectionStatus();
+    const init = async () => {
+      await loadProjectionStatus();
+      await loadData();
+    };
+    init();
   }, []);
 
   const loadProjectionStatus = async () => {
@@ -31,7 +34,7 @@ export default function Projection() {
     }
   };
 
-  const loadData = async () => {
+  const loadData = async (monthsOverride?: number) => {
     try {
       setLoading(true);
       const accountsData = await fetchBankAccounts();
@@ -40,8 +43,9 @@ export default function Projection() {
       const allIds = accountsData.map((a) => a.id);
       setSelectedAccountIds(allIds);
 
+      const months = monthsOverride ?? projectionStatus?.months ?? generatedMonths;
       const graphData = await Promise.all(
-        GRAPH_IDS.map((id) => fetchGraph(id, allIds, generatedMonths))
+        GRAPH_IDS.map((id) => fetchGraph(id, allIds, months))
       );
       setGraphs(graphData);
     } catch (err) {
@@ -75,10 +79,11 @@ export default function Projection() {
   const handleGenerateProjections = async () => {
     setGenerating(true);
     try {
+      await clearProjections();
       await generateProjections(projectionMonths);
       setGeneratedMonths(projectionMonths);
       await loadProjectionStatus();
-      await loadData();
+      await loadData(projectionMonths);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate projections");
     } finally {

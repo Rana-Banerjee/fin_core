@@ -13,6 +13,6 @@ from models.home_loan import HomeLoan, ODImpactType
 from models.investment import Investment, InvestmentType
 from models.investment_projection import InvestmentProjection
 from models.installment import Installment, DisbursedBy
-from models.payment_source import PaymentSource
+
 from models.projection import Projection
 from models.cash_flow_projection import CashFlowProjection

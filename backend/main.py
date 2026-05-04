@@ -9,7 +9,7 @@ from routes import projections
 from routes import home_loans
 from routes import installments
 from routes import investments
-from routes import payment_sources
+
 from routes import cash_flows
 from routes import expense_sources
 from routes import cash_flow_projections
@@ -42,7 +42,7 @@ app.include_router(projections.router)
 app.include_router(home_loans.router)
 app.include_router(installments.router)
 app.include_router(investments.router)
-app.include_router(payment_sources.router)
+
 app.include_router(cash_flows.router)
 app.include_router(expense_sources.router)
 app.include_router(cash_flow_projections.router)

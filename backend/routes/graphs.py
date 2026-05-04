@@ -14,7 +14,7 @@ from models.projection import Projection
 from models.home_loan import HomeLoan
 from models.investment import Investment
 from models.investment_projection import InvestmentProjection
-from models.payment_source import PaymentSource
+
 from models.cash_flow import CashFlow, StreamType, Frequency, AppreciationFrequency
 from math import pow
 from services.emi_calculator import (
@@ -598,39 +598,6 @@ async def populate_graph_data(
             if loan["od_account_id"] and loan["od_impact_type"] != "none"
         }
 
-        result = await db.execute(
-            select(PaymentSource)
-            .where(PaymentSource.is_active == True)
-            .order_by(PaymentSource.priority_order)
-        )
-        payment_sources = result.scalars().all()
-
-        source_balance_map = defaultdict(lambda: defaultdict(float))
-
-        for ps in payment_sources:
-            if ps.source_type == "bank_account" and ps.bank_account_id:
-                for acc in accounts:
-                    if acc.id == ps.bank_account_id:
-                        for month_idx in range(total_months):
-                            source_balance_map[ps.id][month_idx] = (
-                                acc.current_balance
-                                if month_idx == 0
-                                else (
-                                    source_balance_map[ps.id].get(
-                                        month_idx - 1, acc.current_balance
-                                    )
-                                )
-                            )
-                        break
-            elif ps.source_type == "investment" and ps.investment_id:
-                if ps.investment_id in investment_values_map:
-                    for month_idx in range(total_months):
-                        source_balance_map[ps.id][month_idx] = investment_values_map[
-                            ps.investment_id
-                        ][month_idx]
-
-        source_liquidations = defaultdict(list)
-
         cash_in_hand_with_payments = []
         cash_expense_values = []
         for month_idx in range(total_months):
@@ -641,50 +608,13 @@ async def populate_graph_data(
                         non_od_cash -= var.values[month_idx]
                         break
 
-            total_cash_expense = 0.0
             total_payment_needed = 0.0
-
             for loan in home_loans:
                 total_payment_needed += home_loan_payment_values[month_idx]
 
-            remaining_payment = total_payment_needed
-
-            for ps in payment_sources:
-                if remaining_payment <= 0:
-                    break
-
-                current_balance = source_balance_map[ps.id].get(month_idx, 0)
-                if current_balance <= 0:
-                    for m in range(month_idx + 1):
-                        if source_balance_map[ps.id].get(m, 0) > 0:
-                            current_balance = source_balance_map[ps.id][m]
-                            break
-
-                used_from_source = min(remaining_payment, current_balance)
-                if used_from_source > 0:
-                    source_balance_map[ps.id][month_idx] = (
-                        current_balance - used_from_source
-                    )
-                    for future_month in range(month_idx + 1, total_months):
-                        source_balance_map[ps.id][future_month] = max(
-                            0,
-                            source_balance_map[ps.id].get(future_month, current_balance)
-                            - used_from_source,
-                        )
-
-                    if ps.source_type == "investment":
-                        source_liquidations[ps.id].append(used_from_source)
-                    elif ps.source_type == "bank_account":
-                        total_cash_expense += used_from_source
-
-                    remaining_payment -= used_from_source
-
-            if remaining_payment > 0:
-                total_cash_expense += remaining_payment
-
-            cash_after_payments = non_od_cash - total_cash_expense
+            cash_after_payments = non_od_cash - total_payment_needed
             cash_in_hand_with_payments.append(cash_after_payments)
-            cash_expense_values.append(total_cash_expense)
+            cash_expense_values.append(total_payment_needed)
 
         for var in variables:
             if var.name == "Cash in Hand":
